@@ -100,6 +100,9 @@ def Baa(c, aa = "sangnom2", ss = None, mask=True, mthr = 30, blur=5, expand = 1,
     return a8
     
     
+    # As the name suggests it's a somewhat lazy but effective way to repair chroma bleed.
+    # The chroma is warped according to the luma edges hence the chroma "sticks" to luma edges.
+    
 def LazyChromaBleedFix(c, depth = 16, ss=1, mthr = 30, blur=5, expand = 1):
 
     core = vs.get_core() 
@@ -124,6 +127,12 @@ def LazyChromaBleedFix(c, depth = 16, ss=1, mthr = 30, blur=5, expand = 1):
     else:
         return a8
     
+    # A workaround for preserving high bitdepth when functions only work in 8 bit.
+    # This function is only really effective if the 8 bit functions doesn't alter banding or anything that really needs the high bitdepth, like edges.
+    # The functions calculates the difference between the original high bitdepth clip and the new low bitdepth clip.
+    # Afterwards Pastes the altered low bitdepth pixels back to the high bitdepth clip.
+    # It's important to use the same dithering method you used to get the low bitdepth clip.
+    # LazyChromaBleedFix is a great usage example of RestoreDepth.
     
 def RestoreDepth(LowDepth, HighDepth, diffmask=None, dmode=None, planes=[0, 1, 2]):
     
@@ -145,6 +154,45 @@ def RestoreDepth(LowDepth, HighDepth, diffmask=None, dmode=None, planes=[0, 1, 2
     UpscaledMask = core.fmtc.bitdepth(diffmask,bits=highbits)
     
     return core.std.MaskedMerge(HighDepth, UpscaledDepth, UpscaledMask,planes=planes)
+    
+	# original script by Torchlight and Firesledge(?)
+	# port by BakaProxy
+	# bob and qtgmc from HavsFunc is used 
+    # what is this used for again?    
+
+    def dec_txt60mc (src,frame_ref, srcbob=False,draft=False,tff=None):
+
+	core = vs.get_core()
+
+	field_ref = frame_ref if srcbob else frame_ref * 2
+	field_ref =      field_ref  % 5
+	invpos    = (5 - field_ref) % 5
+	pel       = 1 if draft else 2
+ 
+	if srcbob:
+		last = src
+	elif draft:
+		last = haf.Bob(src,tff=tff)  
+	else:
+		last = haf.QTGMC(src,SourceMatch=3, Lossless=2, TR0=1, TR1=1, TR2=1,TFF=tff)  
+
+     	
+	if invpos > 3:
+		clean  = core.std.AssumeFPS(core.std.Trim(last, 0, 0)+core.std.SelectEvery(last,5, 8 - invpos), fpsnum=12000, fpsden=1001)
+	else:
+		clean = core.std.SelectEvery(last,5, 4 - invpos)
+	if invpos > 1:
+		jitter = core.std.AssumeFPS(core.std.Trim(last, 0, 0)+core.std.SelectEvery(last,5, [6 - invpos, 5 - invpos]), fpsnum=24000, fpsden=1001)
+	else:
+		jitter = core.std.SelectEvery(last,5, [1 - invpos, 2 - invpos])
+		
+	jsup   = core.mv.Super(jitter,pel=pel)
+	vect_f = core.mv.Analyse (jsup,isb=False, delta=1, overlap=4)
+	vect_b = core.mv.Analyse (jsup,isb=True,  delta=1, overlap=4)
+	comp   = core.mv.FlowInter (jitter,jsup, vect_b, vect_f, time=50, thscd1=400)
+	fixed  = core.std.SelectEvery (comp,2, 0)
+	last   = core.std.Interleave ([fixed, clean])
+	return last[invpos // 3:]
     
     
 ### Helper Functions
@@ -200,6 +248,7 @@ def InpandLoop(c, x, planes=[0]):
         
     return c
     
+    #From havsfunc, it's just a wrapper anyway.
 def Resize(src, w, h, sx=None, sy=None, sw=None, sh=None, kernel=None, taps=None, a1=None, a2=None, invks=None, invkstaps=None, css=None, planes=None,
            center=None, cplace=None, cplaces=None, cplaced=None, interlaced=None, interlacedd=None, tff=None, tffd=None, flt=None, noring=False,
            bits=None, fulls=None, fulld=None, dmode=None, ampo=None, ampn=None, dyn=None, staticnoise=None, patsize=None):
